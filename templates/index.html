@@ -1,55 +1,32 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Calling Agent Dashboard</title>
-    <style>
-        body { font-family: Arial; padding: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 10px; border: 1px solid #ccc; }
-        th { background: #eee; }
-    </style>
+    <title>AI Calling Agent</title>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<h2>AI Calling Agent Dashboard</h2>
 
-<h3>Make a Call</h3>
-<form id="callForm">
-    <input type="text" id="phone" placeholder="Enter phone number" required>
-    <input type="text" id="webhook" placeholder="Enter webhook URL" required>
-    <button type="submit">Call Now</button>
-</form>
+    <div class="container">
+        <h1>AI Calling Agent</h1>
+        <p>Click below to start an automated AI-powered HR call.</p>
 
-<h3>Call History</h3>
-<table>
-    <tr>
-        <th>Call SID</th>
-        <th>Phone</th>
-        <th>Messages</th>
-    </tr>
+        <button onclick="startCall()">Start Call</button>
 
-    {% for call in calls %}
-    <tr>
-        <td>{{ call.call_sid }}</td>
-        <td>{{ call.phone }}</td>
-        <td><a href="/analysis/{{ call.call_sid }}">View</a></td>
-    </tr>
-    {% endfor %}
-</table>
+        <p id="status"></p>
+
+        <a href="/summary" class="summary-btn">View Call Summary</a>
+    </div>
 
 <script>
-document.getElementById("callForm").onsubmit = async function(e) {
-    e.preventDefault();
-    let phone = document.getElementById("phone").value;
-    let webhook = document.getElementById("webhook").value;
+function startCall() {
+    document.getElementById("status").innerText = "Calling...";
 
-    let res = await fetch("/call", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({phone, webhook})
+    fetch("/call")
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById("status").innerText =
+            "Call Started. Call SID: " + data.call_sid;
     });
-
-    let data = await res.json();
-    alert("Call started: " + data.call_sid);
 }
 </script>
 
