@@ -1,4 +1,4 @@
-from flask import Flask, request, Response, render_template, jsonify
+from flask import Flask, request, jsonify, Response, render_template
 from twilio.twiml.voice_response import VoiceResponse
 from twilio.rest import Client
 from groq import Groq
@@ -10,129 +10,121 @@ import datetime
 
 app = Flask(__name__)
 
-# ------------------------- ENVIRONMENT VARIABLES -------------------------
-TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID")
-TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
-TWILIO_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER")
+# ---------------- ENV VARIABLES ----------------
+TW_SID = os.environ.get("TWILIO_ACCOUNT_SID")
+TW_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
+TW_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER")
+TARGET_NUMBER = os.environ.get("TARGET_PHONE_NUMBER")
 GROQ_KEY = os.environ.get("GROQ_API_KEY")
-MONGO_URI = os.environ.get("MONGO_URI")
+MONGO_URI = os.environ.get("MONGO_URI")   # from MongoDB Atlas
+PUBLIC_URL = os.environ.get("PUBLIC_URL") # Your Render domain
 
-client_twilio = Client(TWILIO_SID, TWILIO_TOKEN)
-client_groq = Groq()
+client = Client(TW_SID, TW_TOKEN)
+groq = Groq(api_key=GROQ_KEY)
 mongo = MongoClient(MONGO_URI)
-db = mongo["ai_agent"]
+db = mongo["ai_calling_agent"]
 calls_collection = db["calls"]
 
-
-# --------------------------- UI DASHBOARD -------------------------------
+# ---------------- HOME UI ----------------
 @app.route("/")
 def home():
-    all_calls = list(calls_collection.find().sort("_id", -1))
-    return render_template("index.html", calls=all_calls)
+    return render_template("index.html")
 
 
-# -------------------------- START OUTBOUND CALL -------------------------
-@app.route("/call", methods=["POST"])
-def call_user():
-    target_number = request.json.get("phone")
-    webhook = request.json.get("webhook")
-
-    call = client_twilio.calls.create(
-        to=target_number,
-        from_=TWILIO_NUMBER,
-        url=f"{webhook}/voice"
+# ---------------- TRIGGER A CALL ----------------
+@app.route("/call")
+def make_call():
+    call = client.calls.create(
+        to=TARGET_NUMBER,
+        from_=TW_NUMBER,
+        url=f"{PUBLIC_URL}/voice"
     )
-
-    calls_collection.insert_one({
-        "call_sid": call.sid,
-        "phone": target_number,
-        "start_time": datetime.datetime.utcnow(),
-        "messages": []
-    })
-
     return jsonify({"message": "Call started", "call_sid": call.sid})
 
 
-# --------------------------- /VOICE -------------------------------------
+# ---------------- TWILIO CALL START ----------------
 @app.route("/voice", methods=["POST"])
-def voice_start():
-    response = VoiceResponse()
-    response.say(
-        "Hello, this is your AI calling agent from AiKing Solutions. May I confirm if you are available for a quick discussion?",
+def voice():
+    resp = VoiceResponse()
+
+    resp.say(
+        "Hello, this is the AI calling agent from AiKing Solutions. "
+        "May I know about the current job openings?",
         voice="alice"
     )
-    response.record(
-        timeout=2,
-        maxLength=15,
+
+    resp.record(
+        maxLength=10,
         playBeep=True,
+        timeout=2,
         action="/recording"
     )
-    return Response(str(response), mimetype="text/xml")
+
+    return Response(str(resp), mimetype="text/xml")
 
 
-# --------------------------- /RECORDING ---------------------------------
+# ---------------- RECORDING HANDLER ----------------
 @app.route("/recording", methods=["POST"])
-def recording_handler():
-    call_sid = request.form.get("CallSid")
+def recording():
     recording_url = request.form.get("RecordingUrl") + ".wav"
 
-    # Download audio
-    audio_file = requests.get(recording_url, auth=(TWILIO_SID, TWILIO_TOKEN))
-    path = f"hr_{call_sid}.wav"
-    with open(path, "wb") as f:
-        f.write(audio_file.content)
+    # --- DOWNLOAD RECORDING ---
+    audio_path = "hr_audio.wav"
+    r = requests.get(recording_url, auth=(TW_SID, TW_TOKEN))
+    with open(audio_path, "wb") as f:
+        f.write(r.content)
 
-    # STT -----------------------
-    with open(path, "rb") as audio:
-        stt = client_groq.audio.transcriptions.create(
-            file=audio,
-            model="whisper-large-v3"
+    # --- SPEECH TO TEXT ---
+    with open(audio_path, "rb") as audio:
+        text = groq.audio.transcriptions.create(
+            file=audio, model="whisper-large-v3"
         ).text
 
-    # AI reply ------------------
+    print("HR:", text)
+
+    # --- AI RESPONSE ---
     prompt = f"""
-    You are an AI calling agent. Reply politely, professionally.
-    HR said: "{stt}"
-    Your response:
+    You are an AI calling agent. Respond politely and ask follow-up questions.
+    HR said: "{text}"
+    Your reply:
     """
-    llm_response = client_groq.chat.completions.create(
+
+    ai_response = groq.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}]
-    )
-    ai_reply = llm_response.choices[0].message.content
+    ).choices[0].message.content
 
-    # TTS -----------------------
-    tts_path = f"reply_{call_sid}.mp3"
-    gTTS(ai_reply, lang="en").save(tts_path)
+    print("AI:", ai_response)
 
-    # Save to DB ---------------
-    calls_collection.update_one(
-        {"call_sid": call_sid},
-        {"$push": {"messages": {"hr": stt, "agent": ai_reply}}}
-    )
+    # --- SAVE TO MONGODB ---
+    calls_collection.insert_one({
+        "timestamp": datetime.datetime.now(),
+        "hr_message": text,
+        "ai_message": ai_response,
+        "recording_url": recording_url
+    })
 
-    # Play reply ----------------
-    response = VoiceResponse()
-    public_url = request.url_root.strip("/")
-    audio_url = f"{public_url}/{tts_path}"
-    response.play(audio_url)
-    response.record(timeout=2, maxLength=10, playBeep=True, action="/recording")
-    return Response(str(response), mimetype="text/xml")
+    # --- TTS ---
+    tts_path = "ai_reply.mp3"
+    gTTS(ai_response, lang="en").save(tts_path)
 
+    # Serve audio from /static
+    audio_url = f"{PUBLIC_URL}/static/ai_reply.mp3"
 
-# -------------------------- SERVE AUDIO FILES ---------------------------
-@app.route("/<filename>")
-def serve_audio(filename):
-    return app.send_static_file(filename)
+    resp = VoiceResponse()
+    resp.play(audio_url)
+    resp.record(maxLength=10, playBeep=True, timeout=2, action="/recording")
+
+    return Response(str(resp), mimetype="text/xml")
 
 
-# -------------------------- CALL ANALYSIS ------------------------------
-@app.route("/analysis/<call_sid>")
-def analyze(call_sid):
-    call_data = calls_collection.find_one({"call_sid": call_sid})
-    return jsonify(call_data)
+# ---------------- SHOW CALL HISTORY ----------------
+@app.route("/summary")
+def summary():
+    data = list(calls_collection.find().sort("timestamp", -1))
+    return render_template("summary.html", calls=data)
 
 
-# ---------------------------- MAIN RUN --------------------------------
+# ---------------- RUN ----------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
