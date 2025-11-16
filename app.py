@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, Response, render_template
+from flask import Flask, request, jsonify, Response, render_template, send_from_directory
 from twilio.twiml.voice_response import VoiceResponse
 from twilio.rest import Client
 from groq import Groq
@@ -16,14 +16,22 @@ TW_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TW_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER")
 TARGET_NUMBER = os.environ.get("TARGET_PHONE_NUMBER")
 GROQ_KEY = os.environ.get("GROQ_API_KEY")
-MONGO_URI = os.environ.get("MONGO_URI")   # from MongoDB Atlas
-PUBLIC_URL = os.environ.get("PUBLIC_URL") # Your Render domain
+MONGO_URI = os.environ.get("MONGO_URI")
+PUBLIC_URL = os.environ.get("PUBLIC_URL")
 
 client = Client(TW_SID, TW_TOKEN)
 groq = Groq(api_key=GROQ_KEY)
+
+# MongoDB
 mongo = MongoClient(MONGO_URI)
 db = mongo["ai_calling_agent"]
 calls_collection = db["calls"]
+
+# Ensure static dir exists
+STATIC_DIR = "static"
+if not os.path.exists(STATIC_DIR):
+    os.makedirs(STATIC_DIR)
+
 
 # ---------------- HOME UI ----------------
 @app.route("/")
@@ -31,8 +39,8 @@ def home():
     return render_template("index.html")
 
 
-# ---------------- TRIGGER A CALL ----------------
-@app.route("/call")
+# ---------------- START CALL ----------------
+@app.route("/call", methods=["GET"])
 def make_call():
     call = client.calls.create(
         to=TARGET_NUMBER,
@@ -49,15 +57,16 @@ def voice():
 
     resp.say(
         "Hello, this is the AI calling agent from AiKing Solutions. "
-        "May I know about the current job openings?",
+        "May I know what job openings are currently available?",
         voice="alice"
     )
 
     resp.record(
-        maxLength=10,
+        maxLength=12,
         playBeep=True,
         timeout=2,
-        action="/recording"
+        action="/recording",
+        method="POST"
     )
 
     return Response(str(resp), mimetype="text/xml")
@@ -69,23 +78,24 @@ def recording():
     recording_url = request.form.get("RecordingUrl") + ".wav"
 
     # --- DOWNLOAD RECORDING ---
-    audio_path = "hr_audio.wav"
+    audio_path = "static/hr_audio.wav"
     r = requests.get(recording_url, auth=(TW_SID, TW_TOKEN))
     with open(audio_path, "wb") as f:
         f.write(r.content)
 
     # --- SPEECH TO TEXT ---
     with open(audio_path, "rb") as audio:
-        text = groq.audio.transcriptions.create(
-            file=audio, model="whisper-large-v3"
+        hr_text = groq.audio.transcriptions.create(
+            file=audio,
+            model="whisper-large-v3"
         ).text
 
-    print("HR:", text)
+    print("HR:", hr_text)
 
     # --- AI RESPONSE ---
     prompt = f"""
     You are an AI calling agent. Respond politely and ask follow-up questions.
-    HR said: "{text}"
+    HR said: "{hr_text}"
     Your reply:
     """
 
@@ -96,29 +106,40 @@ def recording():
 
     print("AI:", ai_response)
 
-    # --- SAVE TO MONGODB ---
+    # --- SAVE TO MONGO ---
     calls_collection.insert_one({
-        "timestamp": datetime.datetime.now(),
-        "hr_message": text,
+        "timestamp": datetime.datetime.utcnow(),
+        "hr_message": hr_text,
         "ai_message": ai_response,
         "recording_url": recording_url
     })
 
-    # --- TTS ---
-    tts_path = "ai_reply.mp3"
+    # --- TTS (SAVE INSIDE STATIC/) ---
+    tts_path = "static/ai_reply.mp3"
     gTTS(ai_response, lang="en").save(tts_path)
 
-    # Serve audio from /static
+    # Twilio will fetch this file
     audio_url = f"{PUBLIC_URL}/static/ai_reply.mp3"
 
     resp = VoiceResponse()
     resp.play(audio_url)
-    resp.record(maxLength=10, playBeep=True, timeout=2, action="/recording")
+    resp.record(
+        maxLength=12,
+        playBeep=True,
+        timeout=2,
+        action="/recording"
+    )
 
     return Response(str(resp), mimetype="text/xml")
 
 
-# ---------------- SHOW CALL HISTORY ----------------
+# ---------------- STATIC FILE SERVING ----------------
+@app.route("/static/<path:filename>")
+def serve_static(filename):
+    return send_from_directory("static", filename)
+
+
+# ---------------- SUMMARY PAGE ----------------
 @app.route("/summary")
 def summary():
     data = list(calls_collection.find().sort("timestamp", -1))
