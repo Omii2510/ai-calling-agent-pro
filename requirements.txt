@@ -1,0 +1,7 @@
+Flask
+twilio
+groq
+gtts
+pymongo
+requests
+gunicorn
