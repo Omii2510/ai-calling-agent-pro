@@ -1,7 +1,8 @@
 Flask
+gunicorn
 twilio
 groq
 gtts
 pymongo
 requests
-gunicorn
+python-dotenv
