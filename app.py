@@ -7,17 +7,18 @@ from pymongo import MongoClient
 import requests
 import os
 import datetime
+import threading
 
 app = Flask(__name__)
 
-# ---------------- ENV VARIABLES ----------------
+# --------- ENV VARS ----------
 TW_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TW_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TW_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER")
 TARGET_NUMBER = os.environ.get("TARGET_PHONE_NUMBER")
 GROQ_KEY = os.environ.get("GROQ_API_KEY")
 MONGO_URI = os.environ.get("MONGO_URI")
-PUBLIC_URL = os.environ.get("PUBLIC_URL")  # MUST NOT BE NONE
+PUBLIC_URL = os.environ.get("PUBLIC_URL")
 
 client = Client(TW_SID, TW_TOKEN)
 groq = Groq(api_key=GROQ_KEY)
@@ -27,38 +28,33 @@ mongo = MongoClient(MONGO_URI)
 db = mongo["ai_calling_agent"]
 calls_collection = db["calls"]
 
-# Ensure static dir exists
+# STATIC
 STATIC_DIR = "static"
 if not os.path.exists(STATIC_DIR):
     os.makedirs(STATIC_DIR)
 
 
-# ---------------- HOME UI ----------------
+# ---------------- HOME ----------------
 @app.route("/")
 def home():
     return render_template("index.html")
 
 
 # ---------------- START CALL ----------------
-@app.route("/call", methods=["GET"])
+@app.route("/call")
 def make_call():
-
-    if PUBLIC_URL is None:
-        return jsonify({"error": "PUBLIC_URL is missing"}), 500
-
     call = client.calls.create(
         to=TARGET_NUMBER,
         from_=TW_NUMBER,
         url=f"{PUBLIC_URL}/voice"
     )
-    return jsonify({"message": "Call started", "call_sid": call.sid})
+    return jsonify({"call_sid": call.sid, "message": "Call started"})
 
 
-# ---------------- TWILIO CALL START ----------------
+# ---------------- TWILIO START ----------------
 @app.route("/voice", methods=["POST"])
 def voice():
     resp = VoiceResponse()
-
     resp.say(
         "Hello, this is the AI calling agent from AiKing Solutions. "
         "May I know what job openings are currently available?",
@@ -66,9 +62,9 @@ def voice():
     )
 
     resp.record(
-        maxLength=12,
+        maxLength=8,
         playBeep=True,
-        timeout=2,
+        timeout=1,
         action="/recording",
         method="POST"
     )
@@ -76,73 +72,85 @@ def voice():
     return Response(str(resp), mimetype="text/xml")
 
 
+# ---------------- BACKGROUND SAVE ----------------
+def save_to_mongo(hr_text, ai_text, rec_url):
+    try:
+        calls_collection.insert_one({
+            "timestamp": datetime.datetime.utcnow(),
+            "hr_message": hr_text,
+            "ai_message": ai_text,
+            "recording_url": rec_url
+        })
+    except Exception as e:
+        print("Mongo Error:", e)
+
+
 # ---------------- RECORDING HANDLER ----------------
 @app.route("/recording", methods=["POST"])
 def recording():
     recording_url = request.form.get("RecordingUrl") + ".wav"
 
-    # --- DOWNLOAD RECORDING ---
-    audio_path = "static/hr_audio.wav"
+    # download audio
+    audio_path = "static/hr.wav"
     r = requests.get(recording_url, auth=(TW_SID, TW_TOKEN))
     with open(audio_path, "wb") as f:
         f.write(r.content)
 
-    # --- SPEECH TO TEXT ---
+    # STT
     with open(audio_path, "rb") as audio:
         hr_text = groq.audio.transcriptions.create(
-            file=audio,
-            model="whisper-large-v3"
+            file=audio, model="whisper-large-v3"
         ).text
 
-    # --- AI RESPONSE ---
-    prompt = f"""
-    You are an AI calling agent. Respond politely and ask follow-up questions.
-    HR said: "{hr_text}"
-    Your reply:
-    """
+    print("HR:", hr_text)
 
-    ai_response = groq.chat.completions.create(
+    # AI
+    prompt = f"HR said: {hr_text}. Give polite short response."
+    ai_text = groq.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}]
     ).choices[0].message.content
 
-    # --- SAVE TO MONGO ---
-    calls_collection.insert_one({
-        "timestamp": datetime.datetime.utcnow(),
-        "hr_message": hr_text,
-        "ai_message": ai_response,
-        "recording_url": recording_url
-    })
+    print("AI:", ai_text)
 
-    # --- TTS ---
-    tts_path = "static/ai_reply.mp3"
-    gTTS(ai_response, lang="en").save(tts_path)
+    # Save in background
+    threading.Thread(
+        target=save_to_mongo,
+        args=(hr_text, ai_text, recording_url)
+    ).start()
+
+    # TTS
+    tts_file = "static/ai_reply.mp3"
+    gTTS(ai_text, lang="en").save(tts_file)
 
     audio_url = f"{PUBLIC_URL}/static/ai_reply.mp3"
 
     resp = VoiceResponse()
     resp.play(audio_url)
     resp.record(
-        maxLength=12,
+        maxLength=8,
         playBeep=True,
-        timeout=2,
+        timeout=1,
         action="/recording"
     )
 
     return Response(str(resp), mimetype="text/xml")
 
 
-# ---------------- STATIC FILE SERVING ----------------
+# ---------------- STATIC ----------------
 @app.route("/static/<path:filename>")
 def serve_static(filename):
     return send_from_directory("static", filename)
 
 
-# ---------------- SUMMARY PAGE ----------------
+# ---------------- SUMMARY ----------------
 @app.route("/summary")
 def summary():
-    data = list(calls_collection.find().sort("timestamp", -1))
-    return render_template("summary.html", calls=data)
+    try:
+        data = list(calls_collection.find().sort("timestamp", -1))
+        return render_template("summary.html", calls=data)
+    except Exception as e:
+        return f"MongoDB Error: {e}", 500
 
 
 # ---------------- RUN ----------------
