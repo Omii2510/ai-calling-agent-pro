@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Calling Agent Dashboard</title>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 10px; border: 1px solid #ccc; }
+        th { background: #eee; }
+    </style>
+</head>
+<body>
+<h2>AI Calling Agent Dashboard</h2>
+
+<h3>Make a Call</h3>
+<form id="callForm">
+    <input type="text" id="phone" placeholder="Enter phone number" required>
+    <input type="text" id="webhook" placeholder="Enter webhook URL" required>
+    <button type="submit">Call Now</button>
+</form>
+
+<h3>Call History</h3>
+<table>
+    <tr>
+        <th>Call SID</th>
+        <th>Phone</th>
+        <th>Messages</th>
+    </tr>
+
+    {% for call in calls %}
+    <tr>
+        <td>{{ call.call_sid }}</td>
+        <td>{{ call.phone }}</td>
+        <td><a href="/analysis/{{ call.call_sid }}">View</a></td>
+    </tr>
+    {% endfor %}
+</table>
+
+<script>
+document.getElementById("callForm").onsubmit = async function(e) {
+    e.preventDefault();
+    let phone = document.getElementById("phone").value;
+    let webhook = document.getElementById("webhook").value;
+
+    let res = await fetch("/call", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({phone, webhook})
+    });
+
+    let data = await res.json();
+    alert("Call started: " + data.call_sid);
+}
+</script>
+
+</body>
+</html>
