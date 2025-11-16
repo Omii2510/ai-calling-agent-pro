@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Call Summary</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="container">
+    <h1>Conversation Summary</h1>
+
+    {% for c in calls %}
+        <div class="card">
+            <p><strong>Time:</strong> {{ c.timestamp }}</p>
+            <p><strong>HR:</strong> {{ c.hr_message }}</p>
+            <p><strong>AI:</strong> {{ c.ai_message }}</p>
+            <a href="{{ c.recording_url }}" target="_blank">🎧 HR Recording</a>
+        </div>
+    {% endfor %}
+</div>
+
+</body>
+</html>
