@@ -1,61 +1,47 @@
+import os
 from crewai import Agent, Task, Crew
 from langchain_groq import ChatGroq
-import os
+from dotenv import load_dotenv
 
-# Correct Groq LLM wrapper
+load_dotenv()
+
+# Initialize Groq LLM
 llm = ChatGroq(
-    model_name="llama-3.1-8b-instant",
-    api_key=os.environ.get("GROQ_API_KEY")
+    api_key=os.getenv("GROQ_API_KEY"),
+    model="llama-3.1-8b-instant"
 )
-
-# ------------------ AGENTS ------------------
-
-hr_understanding_agent = Agent(
-    role="HR Understanding Agent",
-    goal="Understand and interpret the HR's response clearly.",
-    backstory="Expert in extracting meaning and intent from HR conversations.",
-    llm=llm
-)
-
-reply_agent = Agent(
-    role="Reply Generator Agent",
-    goal="Generate polite, natural, professional replies.",
-    backstory="A trained corporate conversational assistant.",
-    llm=llm
-)
-
-# ------------------ CREW PIPELINE ------------------
 
 def run_crew(hr_text):
+    """
+    Runs the CrewAI pipeline to generate an AI response
+    to the HR spoken input received from Twilio.
+    """
 
-    task1 = Task(
-        description=f"""
-            Analyze and interpret this HR message:
-            "{hr_text}"
-            Focus on meaning and job-related information.
-        """,
-        agent=hr_understanding_agent,
-        expected_output="A short interpretation of HR's message."
+    # Define the AI agent
+    assistant_agent = Agent(
+        role="AI HR Interview Assistant",
+        goal="Respond politely, professionally and clearly to HR questions.",
+        backstory=(
+            "You assist job applicants by giving short, clear and friendly replies "
+            "during HR screening calls. Keep your tone natural and confident."
+        ),
+        llm=llm
     )
 
-    task2 = Task(
-        description="""
-            Using the HR interpretation, generate:
-            • Polite reply
-            • Professional tone
-            • Natural phone-call style English
-            • One simple follow-up question
-        """,
-        agent=reply_agent,
-        expected_output="Final natural AI reply for phone conversation."
+    # Create Task
+    task = Task(
+        description=f"HR said: '{hr_text}'. Give a clear and polite response.",
+        agent=assistant_agent
     )
 
+    # Create Crew
     crew = Crew(
-        agents=[hr_understanding_agent, reply_agent],
-        tasks=[task1, task2]
+        agents=[assistant_agent],
+        tasks=[task]
     )
 
-    # IMPORTANT — New CrewAI function
+    # Run pipeline (new CrewAI v1.x method)
     result = crew.kickoff()
 
-    return result
+    # Return raw text output
+    return result.raw_output
