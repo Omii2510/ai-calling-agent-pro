@@ -1,17 +1,18 @@
+# -------------- MUST COME FIRST --------------
 import os
+
+os.environ["CREWAI_DISABLE_OPENAI"] = "true"
+os.environ["OPENAI_API_KEY"] = "disabled"
+os.environ["OPENAI_BASE_URL"] = "https://api.fake-openai.com/v1"
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
+os.environ["CREWAI_TRACING_ENABLED"] = "false"
+
+# --------------------------------------------
 from crewai import Agent, Task, Crew
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# -------------- FORCE DISABLE ALL OPENAI COMPLETELY --------------
-os.environ["OPENAI_API_KEY"] = "disabled"
-os.environ["OPENAI_BASE_URL"] = "https://api.fake-openai.com/v1"  # IMPORTANT FIX
-os.environ["CREWAI_DISABLE_OPENAI"] = "true"
-os.environ["CREWAI_TRACING_ENABLED"] = "false"
-os.environ["LANGCHAIN_TRACING_V2"] = "false"
-os.environ["LANGCHAIN_API_KEY"] = ""
 
 # -------------- INIT GROQ LLM ONLY --------------
 llm = ChatGroq(
@@ -20,26 +21,21 @@ llm = ChatGroq(
     temperature=0.2
 )
 
-# -------------- MAIN FUNCTION --------------
 def run_crew(hr_text: str) -> str:
-    """
-    Generate a short polite reply using GROQ ONLY.
-    No OpenAI should ever be used.
-    """
 
     assistant = Agent(
-        role="HR Call Assistant",
-        goal="Reply politely to HR in 1–2 sentences.",
-        backstory="You help during HR phone calls.",
+        role="HR Assistant",
+        goal="Reply politely in 1–2 sentences.",
+        backstory="You help during HR calls.",
         llm=llm,
         verbose=False,
         allow_delegation=False,
-        tools=[]  # prevents any OpenAI tool loading
+        tools=[]
     )
 
     task = Task(
-        description=f"HR said: '{hr_text}'. Give a short, polite reply.",
-        expected_output="A short polite 1–2 sentence reply.",
+        description=f"HR said: '{hr_text}'. Respond politely.",
+        expected_output="1–2 sentence polite reply",
         agent=assistant
     )
 
