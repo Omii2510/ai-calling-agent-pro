@@ -8,7 +8,7 @@ import requests
 import os
 import datetime
 
-# Import CrewAI pipeline
+# CrewAI pipeline
 from crew_pipeline import run_crew
 
 app = Flask(__name__)
@@ -21,10 +21,10 @@ TARGET_NUMBER = os.environ.get("TARGET_PHONE_NUMBER")
 GROQ_KEY = os.environ.get("GROQ_API_KEY")
 PUBLIC_URL = os.environ.get("PUBLIC_URL")
 
-# Critical MongoDB Atlas check
+# MongoDB Check
 MONGO_URI = os.environ.get("MONGO_URI")
 if not MONGO_URI or "mongodb+srv" not in MONGO_URI:
-    raise Exception("❌ MONGO_URI is missing or NOT Atlas URI!")
+    raise Exception("❌ MONGO_URI missing or not Atlas URI!")
 
 mongo = MongoClient(MONGO_URI)
 db = mongo["ai-calling-agent"]
@@ -33,7 +33,7 @@ calls_collection = db["calls"]
 client = Client(TW_SID, TW_TOKEN)
 groq = Groq(api_key=GROQ_KEY)
 
-# Ensure static folder exists
+# Ensure static exists
 if not os.path.exists("static"):
     os.makedirs("static")
 
@@ -43,7 +43,7 @@ def home():
     return render_template("index.html")
 
 
-# ---------------- Make Call ----------------
+# ---------------- Make Outgoing Call ----------------
 @app.route("/call")
 def call():
     if not PUBLIC_URL:
@@ -57,7 +57,7 @@ def call():
     return jsonify({"message": "Call started", "call_sid": call.sid})
 
 
-# ---------------- Start Voice Flow ----------------
+# ---------------- First Message ----------------
 @app.route("/voice", methods=["POST"])
 def voice():
     resp = VoiceResponse()
@@ -79,13 +79,13 @@ def voice():
     return Response(str(resp), mimetype="text/xml")
 
 
-# ---------------- Recording Handler ----------------
+# ---------------- Handle HR Reply ----------------
 @app.route("/recording", methods=["POST"])
 def recording():
     try:
-        recording_url = request.form.get("RecordingUrl") + ".wav"
+        recording_url = request.form.get("RecordingUrl")
 
-        # Download HR audio
+        # Download audio
         hr_audio = "static/hr.wav"
         r = requests.get(recording_url, auth=(TW_SID, TW_TOKEN))
         with open(hr_audio, "wb") as f:
@@ -99,11 +99,11 @@ def recording():
 
         print("HR Said:", hr_text)
 
-        # ---------------- CrewAI multi-agent response ----------------
+        # ---------------- CrewAI Response ----------------
         ai_response = run_crew(hr_text)
         print("Crew AI Response:", ai_response)
 
-        # Save to MongoDB
+        # Save to DB
         calls_collection.insert_one({
             "timestamp": datetime.datetime.utcnow(),
             "hr_message": hr_text,
@@ -111,11 +111,10 @@ def recording():
             "recording_url": recording_url
         })
 
-        # Convert AI response to speech
+        # Text-to-Speech
         reply_path = "static/ai_reply.mp3"
         gTTS(ai_response, lang="en").save(reply_path)
 
-        # Play response + continue conversation
         resp = VoiceResponse()
         resp.play(f"{PUBLIC_URL}/static/ai_reply.mp3")
         resp.record(
