@@ -1,15 +1,9 @@
 Flask
 gunicorn
 twilio
-groq
+groq==0.35.0
 gtts
 pymongo
 requests
 python-dotenv
-
-crewai==0.36.0
-crewai-tools
-llama-index
-
-langchain-groq
-langchain
+crewai==1.5.0
