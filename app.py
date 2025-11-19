@@ -8,6 +8,9 @@ import requests
 import os
 import datetime
 
+# Import CrewAI pipeline
+from crew_pipeline import run_crew
+
 app = Flask(__name__)
 
 # ---------------- ENV VARIABLES ----------------
@@ -18,7 +21,7 @@ TARGET_NUMBER = os.environ.get("TARGET_PHONE_NUMBER")
 GROQ_KEY = os.environ.get("GROQ_API_KEY")
 PUBLIC_URL = os.environ.get("PUBLIC_URL")
 
-# 🔥 CRITICAL: Use Atlas, don't fallback to localhost
+# Critical MongoDB Atlas check
 MONGO_URI = os.environ.get("MONGO_URI")
 if not MONGO_URI or "mongodb+srv" not in MONGO_URI:
     raise Exception("❌ MONGO_URI is missing or NOT Atlas URI!")
@@ -82,26 +85,25 @@ def recording():
     try:
         recording_url = request.form.get("RecordingUrl") + ".wav"
 
-        # Download recording
+        # Download HR audio
         hr_audio = "static/hr.wav"
         r = requests.get(recording_url, auth=(TW_SID, TW_TOKEN))
         with open(hr_audio, "wb") as f:
             f.write(r.content)
 
-        # Speech-to-Text
+        # Speech-to-Text (Groq Whisper)
         with open(hr_audio, "rb") as audio:
             hr_text = groq.audio.transcriptions.create(
                 file=audio, model="whisper-large-v3"
             ).text
 
-        # AI Response
-        prompt = f"HR said: '{hr_text}'. Respond politely and ask a follow-up."
-        ai_response = groq.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}]
-        ).choices[0].message.content
+        print("HR Said:", hr_text)
 
-        # Save to Mongo
+        # ---------------- CrewAI multi-agent response ----------------
+        ai_response = run_crew(hr_text)
+        print("Crew AI Response:", ai_response)
+
+        # Save to MongoDB
         calls_collection.insert_one({
             "timestamp": datetime.datetime.utcnow(),
             "hr_message": hr_text,
@@ -109,13 +111,19 @@ def recording():
             "recording_url": recording_url
         })
 
-        # TTS
+        # Convert AI response to speech
         reply_path = "static/ai_reply.mp3"
         gTTS(ai_response, lang="en").save(reply_path)
 
+        # Play response + continue conversation
         resp = VoiceResponse()
         resp.play(f"{PUBLIC_URL}/static/ai_reply.mp3")
-        resp.record(maxLength=10, playBeep=True, timeout=2, action="/recording")
+        resp.record(
+            maxLength=10,
+            playBeep=True,
+            timeout=2,
+            action="/recording"
+        )
 
         return Response(str(resp), mimetype="text/xml")
 
