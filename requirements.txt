@@ -6,3 +6,8 @@ gtts
 pymongo
 requests
 python-dotenv
+
+# ---- CrewAI Required ----
+crewai
+crewai-tools
+llama-index
