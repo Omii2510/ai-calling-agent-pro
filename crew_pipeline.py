@@ -5,15 +5,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# -------------- FORCE DISABLE ALL OPENAI --------------
+# -------------- FORCE DISABLE ALL OPENAI COMPLETELY --------------
 os.environ["OPENAI_API_KEY"] = "disabled"
-os.environ["CREWAI_TRACING_ENABLED"] = "false"
-os.environ["LANGCHAIN_API_KEY"] = ""
-os.environ["LANGCHAIN_TRACING_V2"] = "false"
+os.environ["OPENAI_BASE_URL"] = "https://api.fake-openai.com/v1"  # IMPORTANT FIX
 os.environ["CREWAI_DISABLE_OPENAI"] = "true"
-os.environ["OPENAI_BASE_URL"] = "https://invalid-url.com"
+os.environ["CREWAI_TRACING_ENABLED"] = "false"
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
+os.environ["LANGCHAIN_API_KEY"] = ""
 
-# -------------- INIT GROQ LLM --------------
+# -------------- INIT GROQ LLM ONLY --------------
 llm = ChatGroq(
     api_key=os.getenv("GROQ_API_KEY"),
     model="llama-3.1-8b-instant",
@@ -23,22 +23,23 @@ llm = ChatGroq(
 # -------------- MAIN FUNCTION --------------
 def run_crew(hr_text: str) -> str:
     """
-    Use CrewAI + Groq to generate short HR replies.
+    Generate a short polite reply using GROQ ONLY.
+    No OpenAI should ever be used.
     """
 
     assistant = Agent(
         role="HR Call Assistant",
         goal="Reply politely to HR in 1–2 sentences.",
-        backstory="You are an AI assistant helping a candidate during HR phone calls.",
+        backstory="You help during HR phone calls.",
         llm=llm,
         verbose=False,
         allow_delegation=False,
-        tools=[]  # IMPORTANT → prevents any OpenAI tools from loading
+        tools=[]  # prevents any OpenAI tool loading
     )
 
     task = Task(
-        description=f"HR said: '{hr_text}'. Give a short polite reply.",
-        expected_output="A short, polite, friendly 1–2 sentence reply.",
+        description=f"HR said: '{hr_text}'. Give a short, polite reply.",
+        expected_output="A short polite 1–2 sentence reply.",
         agent=assistant
     )
 
@@ -50,7 +51,6 @@ def run_crew(hr_text: str) -> str:
 
     result = crew.kickoff()
 
-    # Safe return
     try:
         return result.raw_output.strip()
     except:
