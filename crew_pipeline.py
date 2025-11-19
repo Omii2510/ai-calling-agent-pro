@@ -3,7 +3,11 @@ from crewai import Agent, Task, Crew
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 
+# Load .env values
 load_dotenv()
+
+# Disable CrewAI from trying to load OpenAI automatically
+os.environ["OPENAI_API_KEY"] = "disabled"
 
 # Initialize Groq LLM
 llm = ChatGroq(
@@ -13,35 +17,35 @@ llm = ChatGroq(
 
 def run_crew(hr_text):
     """
-    Runs the CrewAI pipeline to generate an AI response
-    to the HR spoken input received from Twilio.
+    Runs the CrewAI pipeline to generate a response
+    to the HR messages captured from Twilio's call.
     """
 
-    # Define the AI agent
+    # Agent Definition
     assistant_agent = Agent(
         role="AI HR Interview Assistant",
-        goal="Respond politely, professionally and clearly to HR questions.",
+        goal="Provide short, polite and confident responses to HR questions.",
         backstory=(
-            "You assist job applicants by giving short, clear and friendly replies "
-            "during HR screening calls. Keep your tone natural and confident."
+            "You assist candidates during HR screening calls by giving "
+            "clear and helpful responses when HR speaks."
         ),
         llm=llm
     )
 
-    # Create Task
+    # Task Definition
     task = Task(
-        description=f"HR said: '{hr_text}'. Give a clear and polite response.",
+        description=f"HR said: '{hr_text}'. Respond politely and naturally.",
         agent=assistant_agent
     )
 
-    # Create Crew
+    # Crew Setup
     crew = Crew(
         agents=[assistant_agent],
         tasks=[task]
     )
 
-    # Run pipeline (new CrewAI v1.x method)
+    # Run CrewAI (v1.x system)
     result = crew.kickoff()
 
-    # Return raw text output
+    # Return raw LLM text
     return result.raw_output
