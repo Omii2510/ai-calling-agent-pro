@@ -7,7 +7,9 @@ pymongo
 requests
 python-dotenv
 
-# ---- CrewAI Required ----
-crewai
+crewai==0.36.0
 crewai-tools
 llama-index
+
+langchain-groq
+langchain
