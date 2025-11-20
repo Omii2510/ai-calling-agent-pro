@@ -1,4 +1,11 @@
 import os
+
+os.environ["CREWAI_DISABLE_OPENAI"] = "true"
+os.environ["CREWAI_DEFAULT_LLM"] = "Groq"
+os.environ["CREWAI_USE_GROQ"] = "true"
+os.environ["OPENAI_API_KEY"] = ""
+os.environ["OPENAI_API_BASE_URL"] = ""
+
 from crewai import Agent, Task, Crew
 from langchain_groq import ChatGroq
 
