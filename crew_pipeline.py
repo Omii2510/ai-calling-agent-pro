@@ -1,48 +1,57 @@
 import os
 from crewai import Agent, Task, Crew
-from crewai.llms import GroqLLM
+from groq import Groq
 
-# Disable OpenAI
+# Disable OpenAI fallback completely
 os.environ["OPENAI_API_KEY"] = ""
-os.environ["CREWAI_DISABLE_OPENAI"] = "true"
+os.environ["CREWAI_NATIVE_LLM"] = "disabled"
+os.environ["CREWAI_ALLOW_FALLBACK"] = "false"
 
-# Use Groq native LLM (CrewAI v1.7+)
-llm = GroqLLM(
-    model="llama-3.1-8b-instant",
-    api_key=os.environ.get("GROQ_API_KEY")
-)
-
-hr_understanding_agent = Agent(
-    role="HR Understanding Agent",
-    goal="Understand and interpret the HR message clearly.",
-    backstory="Expert in analyzing job requirements.",
-    llm=llm
-)
-
-reply_agent = Agent(
-    role="Reply Agent",
-    goal="Generate polite short replies for HR.",
-    backstory="Voice assistant for job calls.",
-    llm=llm
-)
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 def run_crew(hr_text):
+    """Process HR response, generate AI reply using Groq, CrewAI does flow ONLY."""
 
-    task1 = Task(
-        description=f"Interpret this HR message: {hr_text}",
-        expected_output="Short interpretation of the HR message.",
-        agent=hr_understanding_agent
+    # ------- Dummy CrewAI (no LLM logic) ---------
+    interpreter_agent = Agent(
+        role="HR Interpreter",
+        goal="Coordinate job conversation flow.",
+        backstory="Agent without LLM.",
+        llm=None,
+        allow_delegation=False,
+        max_iter=1,
+        use_executor=False
     )
 
-    task2 = Task(
-        description="Create a polite reply with one follow-up question.",
-        expected_output="Conversational spoken English reply.",
-        agent=reply_agent
+    task = Task(
+        description="Handle HR reply logically.",
+        expected_output="Done.",
+        agent=interpreter_agent
     )
 
     crew = Crew(
-        agents=[hr_understanding_agent, reply_agent],
-        tasks=[task1, task2]
+        agents=[interpreter_agent],
+        tasks=[task],
+        verbose=False
     )
 
-    return crew.kickoff()
+    crew.run()  # safe (does NOT use LLM)
+
+    # ------- Actual Groq LLM for Conversation -------
+    prompt = (
+        "You are an AI calling agent speaking politely to HR. "
+        "Analyze their message and continue the job inquiry conversation. "
+        "Keep the reply short, human-like, and natural.\n\n"
+        f"HR said: {hr_text}"
+    )
+
+    response = groq_client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": hr_text},
+        ],
+    )
+
+    ai_reply = response.choices[0].message.content.strip()
+    return ai_reply
