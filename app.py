@@ -8,7 +8,7 @@ import requests
 import os
 import datetime
 
-# Import CrewAI Pipeline
+# Import CrewAI Multi-Agent Pipeline
 from crew_pipeline import run_crew
 
 app = Flask(__name__)
@@ -21,11 +21,12 @@ TARGET_NUMBER = os.environ.get("TARGET_PHONE_NUMBER")
 GROQ_KEY = os.environ.get("GROQ_API_KEY")
 PUBLIC_URL = os.environ.get("PUBLIC_URL")
 
-# Disable OpenAI fully
+# Completely disable OpenAI usage in CrewAI
 os.environ["OPENAI_API_KEY"] = ""
 os.environ["OPENAI_API_BASE_URL"] = ""
+os.environ["CREWAI_DISABLE_OPENAI"] = "true"
 
-# MongoDB Setup
+# ---------------- MongoDB ----------------
 MONGO_URI = os.environ.get("MONGO_URI")
 if not MONGO_URI or "mongodb+srv" not in MONGO_URI:
     raise Exception("❌ MONGO_URI missing or not Atlas URI!")
@@ -34,7 +35,7 @@ mongo = MongoClient(MONGO_URI)
 db = mongo["ai-calling-agent"]
 calls_collection = db["calls"]
 
-# Twilio & Groq Clients
+# ---------------- Clients ----------------
 client = Client(TW_SID, TW_TOKEN)
 groq = Groq(api_key=GROQ_KEY)
 
@@ -62,14 +63,14 @@ def call():
     return jsonify({"message": "Call started", "call_sid": call.sid})
 
 
-# ---------------- AI First Message ----------------
+# ---------------- AI Opens Call ----------------
 @app.route("/voice", methods=["POST"])
 def voice():
     resp = VoiceResponse()
 
     resp.say(
         "Hello, this is the AI Calling Agent from AiKing Solutions. "
-        "Could you please tell me what job openings are currently available?",
+        "May I know what job openings are currently available?",
         voice="alice"
     )
 
@@ -84,19 +85,21 @@ def voice():
     return Response(str(resp), mimetype="text/xml")
 
 
-# ---------------- HR Reply Handler ----------------
+# ---------------- HR Replies Handler ----------------
 @app.route("/recording", methods=["POST"])
 def recording():
     try:
         recording_url = request.form.get("RecordingUrl")
+        if not recording_url:
+            raise Exception("No RecordingUrl received from Twilio")
 
-        # Download audio
+        # Download HR audio
         hr_audio = "static/hr.wav"
         r = requests.get(recording_url, auth=(TW_SID, TW_TOKEN))
         with open(hr_audio, "wb") as f:
             f.write(r.content)
 
-        # Speech-to-Text
+        # Speech-to-Text via Groq Whisper
         with open(hr_audio, "rb") as audio:
             hr_text = groq.audio.transcriptions.create(
                 file=audio,
@@ -105,11 +108,11 @@ def recording():
 
         print("HR Said:", hr_text)
 
-        # -------- CrewAI Multi-Agent Response --------
+        # ---------------- CrewAI Multi-Agent Processing ----------------
         ai_response = run_crew(hr_text)
         print("CrewAI Response:", ai_response)
 
-        # Save to DB
+        # Save call to MongoDB
         calls_collection.insert_one({
             "timestamp": datetime.datetime.utcnow(),
             "hr_message": hr_text,
@@ -117,18 +120,20 @@ def recording():
             "recording_url": recording_url
         })
 
-        # Convert AI text → speech
+        # TTS (AI reply → voice)
         reply_path = "static/ai_reply.mp3"
         gTTS(ai_response, lang="en").save(reply_path)
 
-        # Respond on call
+        # Respond to HR
         resp = VoiceResponse()
         resp.play(f"{PUBLIC_URL}/static/ai_reply.mp3")
+
+        # Listen for next HR reply
         resp.record(
+            action="/recording",
             maxLength=10,
             playBeep=True,
-            timeout=2,
-            action="/recording"
+            timeout=2
         )
 
         return Response(str(resp), mimetype="text/xml")
