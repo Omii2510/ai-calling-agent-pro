@@ -1,39 +1,60 @@
+import os
 from crewai import Agent, Task, Crew
 from langchain_groq import ChatGroq
-import os
 
-# FORCE CrewAI to NEVER use OpenAI
+# Disable OpenAI completely
 os.environ["OPENAI_API_KEY"] = ""
-os.environ["OPENAI_API_BASE"] = ""
+os.environ["OPENAI_API_BASE_URL"] = ""
 
+# Groq LLM Wrapper
 llm = ChatGroq(
     model_name="llama-3.1-8b-instant",
-    api_key=os.environ["GROQ_API_KEY"]
+    api_key=os.environ.get("GROQ_API_KEY")
 )
 
+# ------------------ AGENTS ------------------
+
+# Agent 1: Understand HR message
 hr_understanding_agent = Agent(
     role="HR Understanding Agent",
-    goal="Interpret the HR message.",
-    backstory="Expert in job-context interpretation.",
+    goal="Interpret the meaning of the HR's response.",
+    backstory="Expert in analyzing HR conversations and extracting context.",
     llm=llm
 )
 
+# Agent 2: Generate final reply
 reply_agent = Agent(
     role="Reply Generator Agent",
-    goal="Generate polite follow-up reply.",
+    goal="Generate polite follow-up replies.",
     backstory="Professional corporate assistant.",
     llm=llm
 )
 
+# ------------------ CREW PIPELINE ------------------
+
 def run_crew(hr_text):
+
+    # Task 1
     task1 = Task(
-        description=f"Interpret this HR message: {hr_text}",
-        agent=hr_understanding_agent
+        description=f"""
+        Interpret this HR message clearly:
+        "{hr_text}"
+        Extract intent, job details and meaning.
+        """,
+        agent=hr_understanding_agent,
+        expected_output="Short, clear interpretation of HR message."
     )
 
+    # Task 2
     task2 = Task(
-        description="Generate a polite reply with one follow-up question.",
-        agent=reply_agent
+        description="""
+        Based on the HR interpretation, generate:
+        - A polite reply
+        - A follow-up question
+        - Natural, spoken English style
+        """,
+        agent=reply_agent,
+        expected_output="A short natural conversational reply for phone call."
     )
 
     crew = Crew(
