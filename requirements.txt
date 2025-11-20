@@ -1,11 +1,12 @@
 Flask
 gunicorn
 twilio
-groq
 gtts
 pymongo
 requests
 python-dotenv
-
+groq
 crewai==1.5.0
-crewai-tools
+crewai-tools==1.5.0
+langchain
+langchain-groq
